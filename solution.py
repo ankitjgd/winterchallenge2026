@@ -250,9 +250,11 @@ def hold_position(body, food_set, grid, width, height, blocked, friendly_cells=N
     For a stuck snake (no food assigned): try to stay near current position so
     it acts as a stable platform for allied snakes to climb on.
 
-    Picks the move whose final position (after gravity) is closest to the
-    current head — preferring zero displacement (gravity returns us home).
-    Falls back to safe_move order if all moves displace equally.
+    Scoring (lower is better):
+      1. Displacement from current head (prefer 0 — gravity returns us home).
+      2. Tiebreak: avoid pointing head toward a friendly snake. If the cell one
+         step further in the chosen direction is occupied by a friendly body,
+         our head faces the climber — risk of head collision. Deprioritise.
     """
     hx, hy = body[0]
     if len(body) <= 2:
@@ -262,7 +264,7 @@ def hold_position(body, food_set, grid, width, height, blocked, friendly_cells=N
     own_blocked_grow = set(body[1:])
 
     best_dir = None
-    best_dist = float('inf')
+    best_score = (float('inf'), float('inf'))  # (dist, facing_friendly)
 
     for dir_name, dx, dy in DIRS:
         nx, ny = hx + dx, hy + dy
@@ -279,8 +281,17 @@ def hold_position(body, food_set, grid, width, height, blocked, friendly_cells=N
             continue
         fhx, fhy = final_body[0]
         dist = abs(fhx - hx) + abs(fhy - hy)
-        if dist < best_dist:
-            best_dist = dist
+
+        # Tiebreak: penalise if our final head points directly toward a friendly.
+        # Check one cell further in the move direction from the final head —
+        # if that cell is occupied by a friendly body, our head faces the climber.
+        facing = 0
+        if friendly_cells and (fhx + dx, fhy + dy) in friendly_cells:
+            facing = 1
+
+        score = (dist, facing)
+        if score < best_score:
+            best_score = score
             best_dir = dir_name
 
     return best_dir
