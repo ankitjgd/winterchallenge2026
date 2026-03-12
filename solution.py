@@ -168,6 +168,9 @@ def dijkstra_all_reachable_food(body, food_set, grid, width, height, blocked):
                 continue
 
             actual_head = final_body[0]
+            # After gravity the head may land in enemy/friendly territory — reject
+            if actual_head in blocked:
+                continue
             new_cost = cost + 1
 
             if new_cost >= best_cost.get(actual_head, float('inf')):
@@ -290,9 +293,18 @@ while True:
             if other_sid != sid:
                 other_friendly.update(other_cells)
         blocked = opp_occupied | other_friendly
-        snake_options[sid] = dijkstra_all_reachable_food(
+        options = dijkstra_all_reachable_food(
             body, food_set, grid, width, height, blocked
         )
+        if not options:
+            # All paths blocked by enemies — retry ignoring enemy bodies.
+            # Better to head toward food through contested space than do nothing.
+            options = dijkstra_all_reachable_food(
+                body, food_set, grid, width, height, other_friendly
+            )
+            if options:
+                debug(f"Snake {sid}: relaxed enemy blocking, found {len(options)} options")
+        snake_options[sid] = options
 
     all_pairs = []
     for sid, options in snake_options.items():
