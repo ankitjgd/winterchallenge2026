@@ -19,16 +19,16 @@ def parse_body(body_str):
 DIRS = [('UP', 0, -1), ('DOWN', 0, 1), ('LEFT', -1, 0), ('RIGHT', 1, 0)]
 
 
-def is_supported(body, grid, height, food_set, friendly_cells=None):
+def is_supported(body, grid, height, food_set, friendly_cells=None, enemy_cells=None):
     """
     The snake is supported if at least one body part has STATIC support below it:
       - floor (y+1 >= height), OR
       - platform (#) directly below, OR
       - a power source directly below (food acts as a platform), OR
-      - a friendly (allied) snake's body part directly below.
+      - a friendly (allied) snake's body part directly below, OR
+      - an enemy snake's body part directly below (any body part counts per rules).
 
     Own body parts below are NOT counted — a floating chain provides no anchor.
-    But a friendly snake is independently grounded, so it acts as a real platform.
     """
     for (x, y) in body:
         if y + 1 >= height:
@@ -39,10 +39,12 @@ def is_supported(body, grid, height, food_set, friendly_cells=None):
             return True
         if friendly_cells and (x, y + 1) in friendly_cells:
             return True
+        if enemy_cells and (x, y + 1) in enemy_cells:
+            return True
     return False
 
 
-def simulate_fall(body, grid, height, food_set, friendly_cells=None):
+def simulate_fall(body, grid, height, food_set, friendly_cells=None, enemy_cells=None):
     """
     After a move, apply gravity by repeatedly shifting the whole snake DOWN
     until it is supported or a part leaves the grid / hits a platform.
@@ -53,7 +55,7 @@ def simulate_fall(body, grid, height, food_set, friendly_cells=None):
     body_list = list(body)
     for _ in range(height):
         curr = tuple(body_list)
-        if is_supported(curr, grid, height, food_set, friendly_cells):
+        if is_supported(curr, grid, height, food_set, friendly_cells, enemy_cells):
             return curr
         # Shift every part down by 1
         next_list = []
@@ -68,7 +70,7 @@ def simulate_fall(body, grid, height, food_set, friendly_cells=None):
     return None  # never settled — treat as invalid
 
 
-def apply_move(curr_body, nx, ny, grid, height, food_set, friendly_cells=None):
+def apply_move(curr_body, nx, ny, grid, height, food_set, friendly_cells=None, enemy_cells=None):
     """
     Build the body after moving the head to (nx,ny), then apply gravity.
 
@@ -85,12 +87,12 @@ def apply_move(curr_body, nx, ny, grid, height, food_set, friendly_cells=None):
     else:
         new_body = ((nx, ny),) + curr_body[:-1]   # moves: tail removed
 
-    if is_supported(new_body, grid, height, food_set, friendly_cells):
+    if is_supported(new_body, grid, height, food_set, friendly_cells, enemy_cells):
         return new_body
-    return simulate_fall(new_body, grid, height, food_set, friendly_cells)
+    return simulate_fall(new_body, grid, height, food_set, friendly_cells, enemy_cells)
 
 
-def count_escape_moves(body_after_eating, grid, width, height, food_set, friendly_cells=None):
+def count_escape_moves(body_after_eating, grid, width, height, food_set, friendly_cells=None, enemy_cells=None):
     """
     After the snake has eaten a food (body_after_eating = grown body), count
     how many valid moves it has from its new head position.
@@ -116,8 +118,8 @@ def count_escape_moves(body_after_eating, grid, width, height, food_set, friendl
         if (nx, ny) in own_blocked:
             continue
         next_body = ((nx, ny),) + body_after_eating[:-1]
-        if (is_supported(next_body, grid, height, food_set, friendly_cells) or
-                simulate_fall(next_body, grid, height, food_set, friendly_cells) is not None):
+        if (is_supported(next_body, grid, height, food_set, friendly_cells, enemy_cells) or
+                simulate_fall(next_body, grid, height, food_set, friendly_cells, enemy_cells) is not None):
             count += 1
     return count
 
@@ -152,7 +154,7 @@ def move_cost(dir_name, final_head_y, height):
     return 1
 
 
-def dijkstra_all_reachable_food(body, food_set, grid, width, height, blocked, friendly_cells=None):
+def dijkstra_all_reachable_food(body, food_set, grid, width, height, blocked, friendly_cells=None, enemy_cells=None):
     """
     BFS that finds ALL reachable food with gravity simulation via apply_move().
     All moves cost 1. Dead-end food gets a penalty (PENALTY_TRAPPED/TIGHT).
@@ -203,7 +205,7 @@ def dijkstra_all_reachable_food(body, food_set, grid, width, height, blocked, fr
             if (nx, ny) in own_blocked:
                 continue
 
-            final_body = apply_move(curr_body, nx, ny, grid, height, food_set, friendly_cells)
+            final_body = apply_move(curr_body, nx, ny, grid, height, food_set, friendly_cells, enemy_cells)
             if final_body is None:
                 continue
 
@@ -229,7 +231,7 @@ def dijkstra_all_reachable_food(body, food_set, grid, width, height, blocked, fr
                 else:
                     # Stage 2 (accurate): use the real grown body so self-
                     # blocking is accounted for correctly.
-                    escapes = count_escape_moves(final_body, grid, width, height, food_set, friendly_cells)
+                    escapes = count_escape_moves(final_body, grid, width, height, food_set, friendly_cells, enemy_cells)
                     if escapes == 0:
                         penalty = PENALTY_TRAPPED   # body seals all exits
                     elif escapes == 1:
@@ -245,7 +247,7 @@ def dijkstra_all_reachable_food(body, food_set, grid, width, height, blocked, fr
     return results
 
 
-def hold_position(body, food_set, grid, width, height, blocked, friendly_cells=None):
+def hold_position(body, food_set, grid, width, height, blocked, friendly_cells=None, enemy_cells=None):
     """
     For a stuck snake (no food assigned): try to stay near current position so
     it acts as a stable platform for allied snakes to climb on.
@@ -274,7 +276,7 @@ def hold_position(body, food_set, grid, width, height, blocked, friendly_cells=N
             continue
         if (nx, ny) in blocked:
             continue
-        final_body = apply_move(body, nx, ny, grid, height, food_set, friendly_cells)
+        final_body = apply_move(body, nx, ny, grid, height, food_set, friendly_cells, enemy_cells)
         if final_body is None:
             continue
         fhx, fhy = final_body[0]
@@ -286,7 +288,7 @@ def hold_position(body, food_set, grid, width, height, blocked, friendly_cells=N
     return best_dir
 
 
-def safe_move(body, food_set, grid, width, height, blocked):
+def safe_move(body, food_set, grid, width, height, blocked, enemy_cells=None):
     """
     Fallback: find any move that keeps the snake alive after gravity simulation.
     Respects no-reverse / no-self-collision rule.
@@ -311,7 +313,7 @@ def safe_move(body, food_set, grid, width, height, blocked):
                 continue
             if (nx, ny) in check_blocked:
                 continue
-            final_body = apply_move(body, nx, ny, grid, height, food_set)
+            final_body = apply_move(body, nx, ny, grid, height, food_set, enemy_cells=enemy_cells)
             if final_body is not None:
                 return dir_name
 
@@ -391,7 +393,7 @@ while True:
         blocked = opp_occupied | other_friendly
         snake_options[sid] = dijkstra_all_reachable_food(
             body, food_set, grid, width, height, blocked,
-            friendly_cells=other_friendly
+            friendly_cells=other_friendly, enemy_cells=opp_occupied
         )
 
     all_pairs = []
@@ -442,10 +444,12 @@ while True:
         if not direction:
             # No food: hold position so this snake acts as a stable platform for allies
             direction = hold_position(body, food_set, grid, width, height,
-                                      all_blocked, friendly_cells=other_friendly)
+                                      all_blocked, friendly_cells=other_friendly,
+                                      enemy_cells=opp_occupied)
 
         if not direction:
-            direction = safe_move(body, food_set, grid, width, height, all_blocked)
+            direction = safe_move(body, food_set, grid, width, height, all_blocked,
+                                  enemy_cells=opp_occupied)
 
         if not direction:
             direction = last_resort_move(body, grid, width, height)
