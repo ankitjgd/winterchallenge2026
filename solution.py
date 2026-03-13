@@ -146,7 +146,7 @@ def open_exits(pos, grid, width, height):
 
 
 PENALTY_TRAPPED   = 1000  # 0 escape moves after eating — truly stuck, last resort only
-PENALTY_TIGHT     = 10    # 1 escape move — survivable but slightly risky, small tiebreaker
+PENALTY_TIGHT     = 3     # 1 escape move — survivable but slightly risky, small tiebreaker
 
 
 def move_cost(dir_name, final_head_y, height):
@@ -431,15 +431,39 @@ while True:
             debug(f"  => NO food assigned")
 
     # ── Build output — EVERY alive snake must get a direction ──────────────────
+    # Process snakes in order; track next-head cells so later snakes treat them
+    # as blocked (prevents two friendly snakes walking into the same cell).
+    dir_delta = {d: (dx, dy) for d, dx, dy in DIRS}
+
+    def next_head_after_move(body, direction, extra_blocked, other_friendly_cells):
+        """Return the actual head position after move + gravity, or None if invalid."""
+        dx, dy = dir_delta[direction]
+        nx, ny = body[0][0] + dx, body[0][1] + dy
+        if is_wall(nx, ny, grid, width, height):
+            return None
+        if (nx, ny) in extra_blocked:
+            return None
+        fb = apply_move(body, nx, ny, grid, height, food_set,
+                        friendly_cells=other_friendly_cells, enemy_cells=opp_occupied)
+        return fb[0] if fb else None
+
+    claimed_next = set()   # cells that a friendly snake will occupy next turn
     actions = []
     for sid, body in alive:
         other_friendly = set()
         for other_sid, other_cells in friendly_bodies.items():
             if other_sid != sid:
                 other_friendly.update(other_cells)
-        all_blocked = opp_occupied | other_friendly
+        all_blocked = opp_occupied | other_friendly | claimed_next
 
         direction = assignments.get(sid)
+
+        # If assigned direction would collide with a claimed cell, re-route
+        if direction:
+            nh = next_head_after_move(body, direction, all_blocked, other_friendly)
+            if nh is None:
+                debug(f"Snake {sid}: assigned dir {direction} blocked by claimed cell, re-routing")
+                direction = None
 
         if not direction:
             # No food: hold position so this snake acts as a stable platform for allies
@@ -453,6 +477,12 @@ while True:
 
         if not direction:
             direction = last_resort_move(body, grid, width, height)
+
+        # Record this snake's planned next-head so subsequent snakes avoid it
+        if direction:
+            nh = next_head_after_move(body, direction, set(), other_friendly)
+            if nh:
+                claimed_next.add(nh)
 
         actions.append(f"{sid} {direction}")
 
