@@ -448,8 +448,16 @@ while True:
         return fb[0] if fb else None
 
     claimed_next = set()   # cells that a friendly snake will occupy next turn
-    actions = []
-    for sid, body in alive:
+    actions_map = {}
+    # Food-assigned snakes go first so they claim their next cell before
+    # no-food snakes compute hold_position — prevents a drifting no-food
+    # snake from blocking a food-chasing snake at the same cell.
+    priority_order = (
+        [sid for sid, _ in alive if sid in assignments] +
+        [sid for sid, _ in alive if sid not in assignments]
+    )
+    for sid in priority_order:
+        body = snakebots[sid]
         other_friendly = set()
         for other_sid, other_cells in friendly_bodies.items():
             if other_sid != sid:
@@ -484,6 +492,7 @@ while True:
             if nh:
                 claimed_next.add(nh)
 
-        actions.append(f"{sid} {direction}")
+        actions_map[sid] = direction
 
+    actions = [f"{sid} {actions_map[sid]}" for sid, _ in alive if sid in actions_map]
     print(';'.join(actions) if actions else "WAIT", flush=True)
